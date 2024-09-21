@@ -3,10 +3,14 @@
 #define PAGE_HANDLE_H
 
 #include <memory>
+#include "MyDB_Page.h"
+#include "MyDB_BufferManager.h"
 
 // page handles are basically smart pointers
 using namespace std;
+
 class MyDB_PageHandleBase;
+class MyDB_BufferManager;
 typedef shared_ptr <MyDB_PageHandleBase> MyDB_PageHandle;
 
 class MyDB_PageHandleBase {
@@ -26,7 +30,7 @@ public:
 	// will never be written to disk. 
 	void wroteBytes (); 
 
-	void unpin() {};
+	void unpin();
 
 	// There are no more references to the handle when this is called...
 	// this should decrmeent a reference count to the number of handles
@@ -36,13 +40,14 @@ public:
 	~MyDB_PageHandleBase ();
 
 	// FEEL FREE TO ADD ADDITIONAL PUBLIC METHODS
-	MyDB_PageHandleBase(Page* ptr) : pagePtr(ptr) {}
+	MyDB_PageHandleBase(Page* ptr, MyDB_BufferManager& bm) : pagePtr(ptr), bufferManager(bm) {};
 
 
 private:
 
 	// YOUR CODE HERE
 	Page* pagePtr;
+	MyDB_BufferManager& bufferManager;
 };
 
 #endif

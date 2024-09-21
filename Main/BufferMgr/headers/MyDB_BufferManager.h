@@ -4,23 +4,28 @@
 
 #include "MyDB_PageHandle.h"
 #include "MyDB_Table.h"
+#include "MyDB_Page.h"
 #include <unordered_map>
+#include <unordered_set>
 #include <list>
 #include <fcntl.h>
 #include <unistd.h>
+#include <string>
+#include <functional>
+#include <utility>
 
 using namespace std;
 
-struct Page {
-	char* memory;
-	string table;
-	long pageID;
-	bool pin;
-	long referenceCount;
-	bool dirty;
-	Page(char* address, string tableName, long ID, bool pinValid) : memory(address), table(tableName), pageID(ID), pin(pinValid), referenceCount(1), dirty(false) {}
+struct pair_hash {
+    template <class T1, class T2>
+    size_t operator() (const pair<T1, T2>& p) const {
+        auto hash1 = std::hash<T1>{}(p.first);
+        auto hash2 = std::hash<T2>{}(p.second);
+        return hash1 ^ hash2;
+    }
 };
-
+class MyDB_PageHandleBase;
+typedef std::shared_ptr<MyDB_PageHandleBase> MyDB_PageHandle;
 class MyDB_BufferManager {
 
 public:
@@ -50,6 +55,10 @@ public:
 	// un-pins the specified page
 	void unpin (MyDB_PageHandle unpinMe);
 
+	char* retrievePage(Page* page);
+
+	void deletePage(Page* page);
+
 	// creates an LRU buffer manager... params are as follows:
 	// 1) the size of each page is pageSize 
 	// 2) the number of pages managed by the buffer manager is numPages;
@@ -67,17 +76,15 @@ private:
 
 	// YOUR STUFF HERE
 	
-	unordered_map<pair<string,int>, list<Page>::iterator> bufferMap;
+	unordered_map<pair<string,int>, pair<list<Page*>::iterator, Page*>, pair_hash> bufferMap;
 	char* bufferPool;
-	list<Page> pageContainer;
+	list<Page*> pageContainer;
 	unordered_map<string, int> tableMap;
 	size_t pageSize;
 	size_t numPages;
 	size_t currPage = 0;
-	size_t pinNum = 0;
 	size_t anonymousID = 0;
 	string tempFile;
-
 };
 
 #endif
