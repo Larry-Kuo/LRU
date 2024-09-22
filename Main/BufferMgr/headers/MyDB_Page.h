@@ -1,26 +1,28 @@
 #ifndef MYDB_PAGE_H
 #define MYDB_PAGE_H
 
-#include "MyDB_PageHandle.h"
-#include "unordered_set"
 #include <string>
+#include "MyDB_BufferManager.h"
 
 using namespace std;
 
-class MyDB_PageHandleBase;
-typedef std::shared_ptr<MyDB_PageHandleBase> MyDB_PageHandle;
+class MyDB_BufferManager;
+class PageBase;
+typedef shared_ptr<PageBase> Page;
 
-struct Page {
+class PageBase {
+public: 
     char* memory;
     std::string table;
-    long pageID;
+    int pageID;
     bool pin;
     bool dirty;
-    int referenceCount;
+	MyDB_BufferManager& bufferManager;
 
+    ~PageBase ();
 
-    Page(char* address, std::string tableName, long ID, bool pinValid)
-        : memory(address), table(tableName), pageID(ID), pin(pinValid), dirty(false), referenceCount(0) {}
+    PageBase(char* address, std::string tableName, long ID, bool pinValid, MyDB_BufferManager& bm)
+        : memory(address), table(tableName), pageID(ID), pin(pinValid), dirty(false), bufferManager(bm) {}
 };
 
 #endif

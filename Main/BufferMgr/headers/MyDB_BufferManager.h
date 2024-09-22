@@ -25,7 +25,10 @@ struct pair_hash {
     }
 };
 class MyDB_PageHandleBase;
-typedef std::shared_ptr<MyDB_PageHandleBase> MyDB_PageHandle;
+class PageBase;
+typedef shared_ptr <MyDB_PageHandleBase> MyDB_PageHandle;
+typedef shared_ptr <PageBase> Page;
+
 class MyDB_BufferManager {
 
 public:
@@ -55,9 +58,9 @@ public:
 	// un-pins the specified page
 	void unpin (MyDB_PageHandle unpinMe);
 
-	char* retrievePage(Page* page);
+	char* retrievePage(Page page);
 
-	void deletePage(Page* page);
+	void updateBufferMap(string table, int id);
 
 	// creates an LRU buffer manager... params are as follows:
 	// 1) the size of each page is pageSize 
@@ -76,9 +79,9 @@ private:
 
 	// YOUR STUFF HERE
 	
-	unordered_map<pair<string,int>, pair<list<Page*>::iterator, Page*>, pair_hash> bufferMap;
+	unordered_map<pair<string,int>, pair<list<Page>::iterator, Page>, pair_hash> bufferMap;
 	char* bufferPool;
-	list<Page*> pageContainer;
+	list<Page> pageContainer;
 	unordered_map<string, int> tableMap;
 	size_t pageSize;
 	size_t numPages;

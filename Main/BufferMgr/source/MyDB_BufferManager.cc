@@ -19,9 +19,8 @@ MyDB_PageHandle MyDB_BufferManager :: getPage (MyDB_TablePtr whichTable, long id
 		// update the order of pageContainer 
 		pageContainer.splice(pageContainer.end(), pageContainer, itr);
 		// add the handler reference to targetPage and make the handler point to the page
-		Page& targetPage = **itr;
-		pageHandle = make_shared<MyDB_PageHandleBase>(&targetPage, *this);
-		++targetPage.referenceCount;
+		Page targetPage = *itr;
+		pageHandle = make_shared<MyDB_PageHandleBase>(targetPage, *this);
 	} else {   
 		// If the disk file does not exist, create one
 		if (tableMap.find(whichTable->getName())==tableMap.end()) {
@@ -44,19 +43,18 @@ MyDB_PageHandle MyDB_BufferManager :: getPage (MyDB_TablePtr whichTable, long id
 				pageContainer.push_back(target->second.second);
 				target->second.first = --pageContainer.end();
 			} else {
-				Page* newPage = new Page(bufferPool+offset, whichTable->getName(), id, false);
+				Page newPage = make_shared<PageBase>(bufferPool+offset, whichTable->getName(), id, false, *this);
 				pageContainer.push_back(newPage);
 				bufferMap[{whichTable->getName(), id}] = {--pageContainer.end(), newPage};
 			}
 			// 
-			Page& targetPage = **(bufferMap[{whichTable->getName(), id}].first);
-			pageHandle = make_shared<MyDB_PageHandleBase>(&targetPage, *this);
-			++targetPage.referenceCount;
+			Page targetPage = *(bufferMap[{whichTable->getName(), id}].first);
+			pageHandle = make_shared<MyDB_PageHandleBase>(targetPage, *this);
 			currPage++;
 		} else {
 			// the bufferpoll is full
 			// find the victim page
-			list<Page*>::iterator evictItr;
+			list<Page>::iterator evictItr;
 			for (auto it = pageContainer.begin();it!=pageContainer.end();it++) {
 				if (!(**it).pin) {
 					evictItr = it;
@@ -64,45 +62,42 @@ MyDB_PageHandle MyDB_BufferManager :: getPage (MyDB_TablePtr whichTable, long id
 				}
 			}
 			// write back to disk
-			Page& victim = **evictItr;
-			if (victim.dirty) {
-				off_t offset = lseek(tableMap[victim.table], victim.pageID*pageSize, SEEK_SET);
+			Page victim = *evictItr;
+			if (victim->dirty) {
+				off_t offset = lseek(tableMap[victim->table], victim->pageID*pageSize, SEEK_SET);
 				if (offset == (off_t)-1) {
 				    perror("Error seeking file");
 				}
-				ssize_t bytesWritten = write(tableMap[victim.table], victim.memory, pageSize);
+				ssize_t bytesWritten = write(tableMap[victim->table], victim->memory, pageSize);
 				if (bytesWritten != pageSize) {
 				    perror("Error writing to file");
 				}
-				victim.dirty = false;
+				victim->dirty = false;
 			}
 			// update associated 
 			// write new data into bufferpool 
-			memcpy(victim.memory, data, pageSize);
+			memcpy(victim->memory, data, pageSize);
 			// update the pageContainer 
 			// check if the page is in the bufferMap 
 			if (target != bufferMap.end()) {
-				target->second.second->memory = victim.memory;
+				target->second.second->memory = victim->memory;
 				pageContainer.push_back(target->second.second);
 				target->second.first = --pageContainer.end();
 			} else {
-				Page* newPage = new Page(victim.memory, whichTable->getName(), id, false);
+				Page newPage = make_shared<PageBase>(victim->memory, whichTable->getName(), id, false, *this);
 				pageContainer.push_back(newPage);
 				bufferMap[{whichTable->getName(), id}] = {--pageContainer.end(), newPage};
 			}
 			pageContainer.erase(evictItr);
-			// check if page should be delete (check the handler num)
-			if (victim.referenceCount==0) {
-				bufferMap.erase({victim.table, victim.pageID});
-				victim.memory = nullptr;
-				delete &victim;
+			// if the victim page is still be referenced
+			if (victim.use_count() > 1) {
+				victim->memory = nullptr;
 			} else {
-				victim.memory = nullptr;
+				bufferMap.erase({victim->table, victim->pageID});
 			}
 			// 
-			Page& targetPage = **(bufferMap[{whichTable->getName(), id}].first);
-			pageHandle = make_shared<MyDB_PageHandleBase>(&targetPage, *this);
-			++targetPage.referenceCount;
+			Page targetPage = *(bufferMap[{whichTable->getName(), id}].first);
+			pageHandle = make_shared<MyDB_PageHandleBase>(targetPage, *this);
 		}
 	}
 	return pageHandle;		
@@ -114,19 +109,18 @@ MyDB_PageHandle MyDB_BufferManager :: getPage () {
 	if (currPage < numPages) {  
 		int offset = currPage*pageSize;
 		// update the pageContainer 
-		Page* newPage = new Page(bufferPool+offset, "", anonymousID, false);
+		Page newPage = make_shared<PageBase>(bufferPool+offset, "", anonymousID, false, *this);
 		pageContainer.push_back(newPage);
 		// update bufferMap
 		bufferMap[{"", anonymousID}] = {--pageContainer.end(), newPage};
 		// 
-		Page& targetPage = **(bufferMap[{"", anonymousID}].first);
-		pageHandle = make_shared<MyDB_PageHandleBase>(&targetPage, *this);
-		++targetPage.referenceCount;
+		Page targetPage = *(bufferMap[{"", anonymousID}].first);
+		pageHandle = make_shared<MyDB_PageHandleBase>(targetPage, *this);
 		currPage++;
 	} else {
 		// the bufferpoll is full
 		// find the victim page
-		list<Page*>::iterator evictItr;
+		list<Page>::iterator evictItr;
 		for (auto it = pageContainer.begin();it!=pageContainer.end();it++) {
 			if (!(**it).pin) {
 				evictItr = it;
@@ -134,30 +128,27 @@ MyDB_PageHandle MyDB_BufferManager :: getPage () {
 			}
 		}
 		// write back to disk
-		Page& victim = **evictItr;
-		if (victim.dirty) {
-			lseek(tableMap[victim.table], victim.pageID*pageSize, SEEK_SET);
-			write(tableMap[victim.table], victim.memory, pageSize);
-			victim.dirty = false;
+		Page victim = *evictItr;
+		if (victim->dirty) {
+			lseek(tableMap[victim->table], victim->pageID*pageSize, SEEK_SET);
+			write(tableMap[victim->table], victim->memory, pageSize);
+			victim->dirty = false;
 		}
-		// update the pageContainer 
-		Page* newPage = new Page(victim.memory, "", anonymousID, false);
+		// update the pageContainer 		
+		Page newPage = make_shared<PageBase>(victim->memory, "", anonymousID, false, *this);
 		pageContainer.push_back(newPage);
 		bufferMap[{"", anonymousID}] = {--pageContainer.end(), newPage};
 		pageContainer.erase(evictItr);
 
 		// check if page should be delete (check the handler num)
-		if (victim.referenceCount==0) {
-			bufferMap.erase({victim.table, victim.pageID});
-			victim.memory = nullptr;
-			delete &victim;
+		if (victim.use_count() > 1) {
+			victim->memory = nullptr;
 		} else {
-			victim.memory = nullptr;
+			bufferMap.erase({victim->table, victim->pageID});
 		}
 		//
-		Page& targetPage = **(bufferMap[{"", anonymousID}].first);
-		pageHandle = make_shared<MyDB_PageHandleBase>(&targetPage, *this);
-		++targetPage.referenceCount;
+		Page targetPage = *(bufferMap[{"", anonymousID}].first);
+		pageHandle = make_shared<MyDB_PageHandleBase>(targetPage, *this);
 	}
 	anonymousID++;
 	return pageHandle;		
@@ -173,10 +164,9 @@ MyDB_PageHandle MyDB_BufferManager :: getPinnedPage (MyDB_TablePtr whichTable, l
 		// update the order of pageContainer 
 		pageContainer.splice(pageContainer.end(), pageContainer, itr);
 		// add the handler reference to targetPage and make the handler point to the page
-		Page& targetPage = **itr;
-		pageHandle = make_shared<MyDB_PageHandleBase>(&targetPage, *this);
-		++targetPage.referenceCount;
-		targetPage.pin = true;
+		Page targetPage = *itr;
+		pageHandle = make_shared<MyDB_PageHandleBase>(targetPage, *this);
+		targetPage->pin = true;
 	} else {   
 		// If the disk file does not exist, create one
 		if (tableMap.find(whichTable->getName())==tableMap.end()) {
@@ -199,20 +189,19 @@ MyDB_PageHandle MyDB_BufferManager :: getPinnedPage (MyDB_TablePtr whichTable, l
 				pageContainer.push_back(target->second.second);
 				target->second.first = --pageContainer.end();
 			} else {
-				Page* newPage = new Page(bufferPool+offset, whichTable->getName(), id, false);
+		        Page newPage = make_shared<PageBase>(bufferPool+offset, whichTable->getName(), id, false, *this);
 				pageContainer.push_back(newPage);
 				bufferMap[{whichTable->getName(), id}] = {--pageContainer.end(), newPage};
 			}
 			// 
-			Page& targetPage = **(bufferMap[{whichTable->getName(), id}].first);
-			pageHandle = make_shared<MyDB_PageHandleBase>(&targetPage, *this);
-			++targetPage.referenceCount;
-			targetPage.pin = true;
+			Page targetPage = *(bufferMap[{whichTable->getName(), id}].first);
+			pageHandle = make_shared<MyDB_PageHandleBase>(targetPage, *this);
+			targetPage->pin = true;
 			currPage++;
 		} else {
 			// the bufferpoll is full
 			// find the victim page
-			list<Page*>::iterator evictItr;
+			list<Page>::iterator evictItr;
 			for (auto it = pageContainer.begin();it!=pageContainer.end();it++) {
 				if (!(**it).pin) {
 					evictItr = it;
@@ -220,46 +209,43 @@ MyDB_PageHandle MyDB_BufferManager :: getPinnedPage (MyDB_TablePtr whichTable, l
 				}
 			}
 			// write back to disk
-			Page& victim = **evictItr;
-			if (victim.dirty) {
-				off_t offset = lseek(tableMap[victim.table], victim.pageID*pageSize, SEEK_SET);
+			Page victim = *evictItr;
+			if (victim->dirty) {
+				off_t offset = lseek(tableMap[victim->table], victim->pageID*pageSize, SEEK_SET);
 				if (offset == (off_t)-1) {
 				    perror("Error seeking file");
 				}
-				ssize_t bytesWritten = write(tableMap[victim.table], victim.memory, pageSize);
+				ssize_t bytesWritten = write(tableMap[victim->table], victim->memory, pageSize);
 				if (bytesWritten != pageSize) {
 				    perror("Error writing to file");
 				}
-				victim.dirty = false;
+				victim->dirty = false;
 			}
 			// update associated 
 			// write new data into bufferpool 
-			memcpy(victim.memory, data, pageSize);
+			memcpy(victim->memory, data, pageSize);
 			// update the pageContainer 
 			// check if the page is in the bufferMap 
 			if (target != bufferMap.end()) {
-				target->second.second->memory = victim.memory;
+				target->second.second->memory = victim->memory;
 				pageContainer.push_back(target->second.second);
 				target->second.first = --pageContainer.end();
 			} else {
-				Page* newPage = new Page(victim.memory, whichTable->getName(), id, false);
+				Page newPage = make_shared<PageBase>(victim->memory, whichTable->getName(), id, false, *this);
 				pageContainer.push_back(newPage);
 				bufferMap[{whichTable->getName(), id}] = {--pageContainer.end(), newPage};
 			}
 			pageContainer.erase(evictItr);
 			// check if page should be delete (check the handler num)
-			if (victim.referenceCount==0) {
-				bufferMap.erase({victim.table, victim.pageID});
-				victim.memory = nullptr;
-				delete &victim;
+			if (victim.use_count() > 1) {
+				victim->memory = nullptr;
 			} else {
-				victim.memory = nullptr;
+				bufferMap.erase({victim->table, victim->pageID});
 			}
 			// 
-			Page& targetPage = **(bufferMap[{whichTable->getName(), id}].first);
-			pageHandle = make_shared<MyDB_PageHandleBase>(&targetPage, *this);
-			++targetPage.referenceCount;
-			targetPage.pin = true;
+			Page targetPage = *(bufferMap[{whichTable->getName(), id}].first);
+			pageHandle = make_shared<MyDB_PageHandleBase>(targetPage, *this);
+			targetPage->pin = true;
 		}
 	}
 	return pageHandle;			
@@ -271,20 +257,19 @@ MyDB_PageHandle MyDB_BufferManager :: getPinnedPage () {
 	if (currPage < numPages) {  
 		int offset = currPage*pageSize;
 		// update the pageContainer 
-		Page* newPage = new Page(bufferPool+offset, "", anonymousID, false);
+		Page newPage = make_shared<PageBase>(bufferPool+offset, "", anonymousID, false, *this);
 		pageContainer.push_back(newPage);
 		// update bufferMap
 		bufferMap[{"", anonymousID}] = {--pageContainer.end(), newPage};
 		// 
-		Page& targetPage = **(bufferMap[{"", anonymousID}].first);
-		pageHandle = make_shared<MyDB_PageHandleBase>(&targetPage, *this);
-		++targetPage.referenceCount;
-		targetPage.pin = true;
+		Page targetPage = *(bufferMap[{"", anonymousID}].first);
+		pageHandle = make_shared<MyDB_PageHandleBase>(targetPage, *this);
+		targetPage->pin = true;
 		currPage++;
 	} else {
 		// the bufferpoll is full
 		// find the victim page
-		list<Page*>::iterator evictItr;
+		list<Page>::iterator evictItr;
 		for (auto it = pageContainer.begin();it!=pageContainer.end();it++) {
 			if (!(**it).pin) {
 				evictItr = it;
@@ -292,33 +277,30 @@ MyDB_PageHandle MyDB_BufferManager :: getPinnedPage () {
 			}
 		}
 		// write back to disk
-		Page& victim = **evictItr;
-		if (victim.dirty) {
+		Page victim = *evictItr;
+		if (victim->dirty) {
 			// lseek(tableMap[victim.table], victim.pageID*pageSize, SEEK_SET);
 			// write(tableMap[victim.table], victim.memory, pageSize);			
-			lseek(tableMap[victim.table], victim.pageID*pageSize, SEEK_SET);
-			write(tableMap[victim.table], victim.memory, pageSize);
-			victim.dirty = false;
+			lseek(tableMap[victim->table], victim->pageID*pageSize, SEEK_SET);
+			write(tableMap[victim->table], victim->memory, pageSize);
+			victim->dirty = false;
 		}
-		// update the pageContainer 
-		Page* newPage = new Page(victim.memory, "", anonymousID, false);
+		// update the pageContainer 		
+		Page newPage = make_shared<PageBase>(victim->memory, "", anonymousID, false, *this);
 		pageContainer.push_back(newPage);
 		bufferMap[{"", anonymousID}] = {--pageContainer.end(), newPage};
 		pageContainer.erase(evictItr);
 
 		// check if page should be delete (check the handler num)
-		if (victim.referenceCount==0) {
-			bufferMap.erase({victim.table, victim.pageID});
-			victim.memory = nullptr;
-			delete &victim;
+		if (victim.use_count() > 1) {
+			victim->memory = nullptr;
 		} else {
-			victim.memory = nullptr;
+			bufferMap.erase({victim->table, victim->pageID});
 		}
 		//
-		Page& targetPage = **(bufferMap[{"", anonymousID}].first);
-		pageHandle = make_shared<MyDB_PageHandleBase>(&targetPage, *this);
-		++targetPage.referenceCount;
-		targetPage.pin = true;
+		Page targetPage = *(bufferMap[{"", anonymousID}].first);
+		pageHandle = make_shared<MyDB_PageHandleBase>(targetPage, *this);
+		targetPage->pin = true;
 	}
 	anonymousID++;
 	return pageHandle;		
@@ -328,13 +310,13 @@ void MyDB_BufferManager :: unpin (MyDB_PageHandle unpinMe) {
 	unpinMe->unpin();
 }
 
-char* MyDB_BufferManager :: retrievePage(Page* page) {
+char* MyDB_BufferManager :: retrievePage(Page page) {
 	// read data from disk   
 	char data[pageSize];
 	lseek(tableMap[page->table], page->pageID*pageSize, SEEK_SET);
     read(tableMap[page->table], data, sizeof(data));
 	// find the victim page
-	list<Page*>::iterator evictItr;
+	list<Page>::iterator evictItr;
 	for (auto it = pageContainer.begin();it!=pageContainer.end();it++) {
 		if (!(**it).pin) {
 			evictItr = it;
@@ -342,35 +324,31 @@ char* MyDB_BufferManager :: retrievePage(Page* page) {
 		}
 	}
 	// write back to disk
-	Page& victim = **evictItr;
-	if (victim.dirty) {
-		lseek(tableMap[victim.table], victim.pageID*pageSize, SEEK_SET);
-		write(tableMap[victim.table], victim.memory, pageSize);
-		victim.dirty = false;
+	Page victim = *evictItr;
+	if (victim->dirty) {
+		lseek(tableMap[victim->table], victim->pageID*pageSize, SEEK_SET);
+		write(tableMap[victim->table], victim->memory, pageSize);
+		victim->dirty = false;
 	}
 	// write new data into bufferpool 
-	memcpy(victim.memory, data, pageSize);
+	memcpy(victim->memory, data, pageSize);
 	// update page info
-	page->memory = victim.memory;
+	page->memory = victim->memory;
 	pageContainer.push_back(page);
 	bufferMap[{page->table, page->pageID}] = {--pageContainer.end(), page};		
 
-	// check if page should be delete (check the handler num)
+	// 
 	pageContainer.erase(evictItr);
-	if (victim.referenceCount==0) {
-		bufferMap.erase({victim.table, victim.pageID});
-		victim.memory = nullptr;
-		delete &victim;
+	if (victim.use_count() > 1) {
+		victim->memory = nullptr;
 	} else {
-		victim.memory = nullptr;
+		bufferMap.erase({victim->table, victim->pageID});
 	}
 	return page->memory;
 }
 
-void MyDB_BufferManager :: deletePage(Page* page) {
-	bufferMap.erase({page->table, page->pageID});
-	delete page;
-	page = nullptr;
+void MyDB_BufferManager :: updateBufferMap(string table, int id) {
+	bufferMap.erase({table, id});
 }
 
 MyDB_BufferManager :: MyDB_BufferManager (size_t pSize, size_t nPages, string tempFileName) {
@@ -386,22 +364,24 @@ MyDB_BufferManager :: MyDB_BufferManager (size_t pSize, size_t nPages, string te
 
 MyDB_BufferManager :: ~MyDB_BufferManager () {
 	// write dirty page back to disk
-	for (const Page* page : pageContainer) {
-		if (page->dirty) {
-			if (page->table != "") {
-				lseek(tableMap[page->table], page->pageID*pageSize, SEEK_SET);
-				write(tableMap[page->table], page->memory, pageSize);
+	for (std::list<Page>::iterator it = pageContainer.begin(); it != pageContainer.end();it++) {
+        if ((*it)->dirty) {
+			if ((*it)->table != "") {
+				lseek(tableMap[(*it)->table], (*it)->pageID*pageSize, SEEK_SET);
+				write(tableMap[(*it)->table], (*it)->memory, pageSize);
 			}
 		}
-	}
+    }
+
 	//  close file
-	for (const auto& pair : tableMap) {
-		close(pair.second);
+	for (auto it = tableMap.begin(); it != tableMap.end();it++) {
+	    close(it->second); 
 	}
 	// delete temp file
     if (remove(tempFile.c_str()) != 0) {
         perror("Error deleting file");
     }
+
 	// delete buffer pool 
 	free(bufferPool);
 	bufferPool = nullptr;

@@ -50,7 +50,7 @@ int main (int argc, char *argv[]) {
 
 	switch (start) {
 	case 1:
-        	{
+        {
 			cout << "TEST 1..." << flush;
 			MyDB_BufferManager myMgr (64, 160, "tempDSFSD");
 			MyDB_TablePtr table1 = make_shared <MyDB_Table> ("tempTable", "foobar");

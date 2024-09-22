@@ -24,15 +24,12 @@ void MyDB_PageHandleBase :: unpin () {
 }
 
 MyDB_PageHandleBase :: ~MyDB_PageHandleBase () {
-	--pagePtr->referenceCount;
-	if (pagePtr->referenceCount == 0) {
-		if (pagePtr->memory) {
-			pagePtr->pin = false;
-		} else {
-			bufferManager.deletePage(pagePtr);
-		}
+	if (pagePtr.use_count() == 3 && pagePtr->pin) {
+    	pagePtr->pin = false; 
 	}
-	pagePtr = nullptr;
+	if (pagePtr.use_count() == 2) {
+		bufferManager.updateBufferMap(pagePtr->table, pagePtr->pageID);
+	}
 }
 
 #endif

@@ -10,8 +10,10 @@
 using namespace std;
 
 class MyDB_PageHandleBase;
+class PageBase;
 class MyDB_BufferManager;
 typedef shared_ptr <MyDB_PageHandleBase> MyDB_PageHandle;
+typedef shared_ptr <PageBase> Page;
 
 class MyDB_PageHandleBase {
 
@@ -40,13 +42,13 @@ public:
 	~MyDB_PageHandleBase ();
 
 	// FEEL FREE TO ADD ADDITIONAL PUBLIC METHODS
-	MyDB_PageHandleBase(Page* ptr, MyDB_BufferManager& bm) : pagePtr(ptr), bufferManager(bm) {};
+	MyDB_PageHandleBase(Page ptr, MyDB_BufferManager& bm) : pagePtr(ptr), bufferManager(bm) {};
 
 
 private:
 
 	// YOUR CODE HERE
-	Page* pagePtr;
+	Page pagePtr;
 	MyDB_BufferManager& bufferManager;
 };
 
